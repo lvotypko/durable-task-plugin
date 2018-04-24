@@ -30,11 +30,15 @@ import hudson.Launcher;
 import hudson.plugins.sshslaves.SSHLauncher;
 import hudson.slaves.DumbSlave;
 import hudson.slaves.OfflineCause;
+import hudson.util.ProcessTree;
 import hudson.util.StreamTaskListener;
 import hudson.util.VersionNumber;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
 import java.util.logging.Level;
 import org.apache.commons.io.output.TeeOutputStream;
 import static org.hamcrest.Matchers.*;
@@ -111,6 +115,43 @@ public class BourneShellScriptTest {
         assertTrue(log.contains("got SIG"));
         c.cleanup(ws);
     }
+
+    @Issue("JENKINS-50892")
+    @Test public void interruptScriptExecution() throws Throwable {
+        FileMonitoringTask.FileMonitoringController c = (FileMonitoringTask.FileMonitoringController) new BourneShellScript("sleep 22").launch(new EnvVars("interrupt", "true"), ws, launcher, listener);
+        ProcessTree.OSProcess process = getRootProccessWithEnv(new EnvVars("interrupt", "true"), 4);
+        assertNotNull("Script was not launched.", process);
+        int pid = process.getPid();
+        //wait until sleep 22 is executed
+        int counting = 0;
+        List arguments = new ArrayList<String>();
+        arguments.add("sleep");
+        arguments.add("22");
+        ProcessTree.OSProcess sleeping = getProcess(new EnvVars("interrupt", "true"), arguments, 4);
+        assertNotNull("Can not find running process for arguments 'sleep 22'.", sleeping);
+
+        //kill by signal 15
+        Runtime.getRuntime().exec("kill -15 " + process.getPid());
+
+        //wait the time which is needed for execution 'sleep 22'
+        Thread.sleep(30000);
+        //assert that 'sleep 22' is not running anymore
+        ProcessTree.OSProcess sleepingProcess = getProcess(new EnvVars("interrupt", "true"), sleeping.getArguments(),0);
+        assertTrue("Process 'sleep 22' is still running after 30 seconds of waiting.", sleepingProcess == null || sleeping.getPid() != sleepingProcess.getPid());
+        if(!c.getResultFile(ws).exists()){
+            if(getProcess(new EnvVars("interrupt", "true"), process.getArguments(), 0) != null){
+                fail("Result file was not created and process stucked.");
+            }
+            else{
+                fail("Result file was not created.");
+            }
+        }
+    }
+
+
+
+
+
 
     @Test public void reboot() throws Exception {
         FileMonitoringTask.FileMonitoringController c = (FileMonitoringTask.FileMonitoringController) new BourneShellScript("sleep 999").launch(new EnvVars("killemall", "true"), ws, launcher, listener);
@@ -235,5 +276,47 @@ public class BourneShellScriptTest {
         assumeTrue("Docker required for this test", new Docker().isAvailable());
         runOnDocker(new DumbSlave("docker", "/home/jenkins/agent", new SimpleCommandLauncher("docker run -i --rm --name agent --init jenkinsci/slave:3.7-1 java -jar /usr/share/jenkins/slave.jar")));
     }
+
+    
+    private ProcessTree.OSProcess getRootProccessWithEnv(EnvVars env, int numberOfRepetition) throws InterruptedException {
+        int count = 0;
+        ProcessTree.OSProcess process = null;
+        while(count <= numberOfRepetition) {
+            Iterator<ProcessTree.OSProcess> iterator = ProcessTree.get().iterator();
+            while (iterator.hasNext()) {
+                ProcessTree.OSProcess p = iterator.next();
+                if (p.hasMatchingEnvVars(env)) {
+                    while (p.getParent().hasMatchingEnvVars(env)) {
+                        //if there is a parent process with given env, check if its parent process has it too.
+                        p = p.getParent();
+                    }
+                    process = p;
+                    break;
+                }
+            }
+            Thread.sleep(1000);
+            count++;
+        }
+        return process;
+
+    }
+
+    private ProcessTree.OSProcess getProcess(EnvVars env, List<String> arguments, int numberOfRepetition) throws InterruptedException {
+        int count = 0;
+        ProcessTree.OSProcess process = null;
+        while(count <= numberOfRepetition) {
+            Iterator<ProcessTree.OSProcess> iterator = ProcessTree.get().iterator();
+            while (iterator.hasNext()) {
+                ProcessTree.OSProcess p = iterator.next();
+                if (p.hasMatchingEnvVars(env) && p.getArguments().containsAll(arguments)) {
+                    return p;
+                }
+            }
+            Thread.sleep(1000);
+            count++;
+        }
+        return null;
+    }
+
 
 }
