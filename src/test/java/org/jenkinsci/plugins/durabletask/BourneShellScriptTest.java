@@ -139,8 +139,8 @@ public class BourneShellScriptTest {
         ProcessTree.OSProcess sleepingProcess = getProcess(new EnvVars("interrupt", "true"), sleeping.getArguments(),0);
         assertTrue("Process 'sleep 22' is still running after 30 seconds of waiting.", sleepingProcess == null || sleeping.getPid() != sleepingProcess.getPid());
         if(!c.getResultFile(ws).exists()){
-            if(getProcess(new EnvVars("interrupt", "true"), process.getArguments(), 0) != null){
-                ProcessTree.OSProcess p = ProcessTree.get().get(pid);
+            ProcessTree.OSProcess p = getProcess(new EnvVars("interrupt", "true"), process.getArguments(), 0);
+            if(p != null){
                 for(ProcessTree.OSProcess child : p.getChildren()){
                     System.err.println("child process of stucked process " + child.getArguments());
                 }
