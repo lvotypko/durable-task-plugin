@@ -131,7 +131,7 @@ public class BourneShellScriptTest {
         assertNotNull("Can not find running process for arguments 'sleep 22'.", sleeping);
 
         //kill by signal 15
-        Runtime.getRuntime().exec("kill -15 " + process.getPid());
+        Runtime.getRuntime().exec("kill -2 " + process.getPid());
 
         //wait the time which is needed for execution 'sleep 22'
         Thread.sleep(30000);
